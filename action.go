@@ -2,6 +2,7 @@ package action
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 )
@@ -14,11 +15,12 @@ type Input struct {
 
 // Item holds the data for a given action item.  It is intended to be
 // serializable directly as JSON for the statistics query.  Note the
-// count field, used internally, is not part of the serialized JSON.
+// count and sum fieldd, used internally, are not part of the serialized JSON.
 type Item struct {
 	Action string  `json:"action"`
 	Avg    float64 `json:"avg"`
 	count  int
+	sum    float64
 }
 
 // Accumulator is the holder of all the actions and their various metrics.
@@ -57,6 +59,9 @@ func (acc *Accumulator) AddAction(actions string) error {
 	if err := json.Unmarshal([]byte(actions), &input); err != nil {
 		return err
 	}
+	if input.Action == "" {
+		return fmt.Errorf("missing action")
+	}
 
 	acc.mu.Lock()
 	defer acc.mu.Unlock()
@@ -64,10 +69,11 @@ func (acc *Accumulator) AddAction(actions string) error {
 	if !ok {
 		// Add a new action key to the sorted list and item map.
 		acc.keys = insertSorted(input.Action, acc.keys)
-		acc.items[input.Action] = &Item{Action: input.Action, Avg: input.Time, count: 1}
+		acc.items[input.Action] = &Item{Action: input.Action, Avg: input.Time, count: 1, sum: input.Time}
 	} else {
-		// Recalculate the running average for this action item and bump the count.
-		item.Avg = (float64(item.count)*item.Avg + input.Time) / float64(item.count+1)
+		// Recalculate the average for this action item and bump the count.
+		item.sum += input.Time
+		item.Avg = item.sum / float64(item.count+1)
 		item.count++
 	}
 	return nil

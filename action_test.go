@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -65,10 +66,14 @@ func TestBasicOperation(t *testing.T) {
 	for n, data := range []struct {
 		input    []string
 		expected []Item
-		expError error
+		expError string
 	}{
 		{
 			expected: []Item{},
+		},
+		{
+			input:    []string{`{"time":100}`},
+			expError: "missing action",
 		},
 		{
 			input:    []string{`{"action":"jump", "time":100}`},
@@ -130,11 +135,17 @@ func TestBasicOperation(t *testing.T) {
 		// Sequential adds.
 		for _, inp := range data.input {
 			err := acc.AddAction(inp)
-			if err != nil && data.expError == nil {
+			if err != nil && data.expError == "" {
 				t.Fatalf("%d: got unexpcted error: %v", n, err)
 			}
-			if err == nil && data.expError != nil {
-				t.Fatalf("%d: did not get unexpcted error: %v", n, data.expError)
+
+			if data.expError != "" {
+				if err == nil {
+					t.Fatalf("%d: did not get expected error: %v", n, data.expError)
+				} else if !strings.Contains(err.Error(), data.expError) {
+					t.Fatalf("%d: got error '%s', but it did not contain '%s'",
+						n, err, data.expError)
+				}
 			}
 		}
 
@@ -157,19 +168,48 @@ func TestBasicOperation(t *testing.T) {
 	}
 }
 
+// Test concurrent adds and stats retrievals.
 func TestConcurrency(t *testing.T) {
-	const numActions = 100
-	const numIters = 100
-	const numWorkers = 10
+	// The test creates a number of distinct actions, each which call AddAction()
+	// and then GetStats() the identical number of times.  Each individual
+	// AddAction/GetStats pair is called concurrently in a goroutine in one
+	// of the configured number of worker gorouitines.
+	//
+	// In summary:
+	// 1. The actions are named action00001, action00002, ....up to numActions,
+	//     the configured number of actions.  The action0000x format is to preserve
+	//     numbering order when looping thorugh the results, which are alphabetized
+	//     by action name.
+	// 2. Each action has a specific number of iterations, specified by numIters.
+	// 3. The number of worker goroutines is numwWorkers.
+	// 4. Each action will add actions with times (action #)*1, (action #)*2, etc.
+	// 5. Given #4, action 1 will add the times 1,2,3,4,5....numIters
+	// 6. Action 2 will add the items 2,4,6,8,10 ... numIters*2
+	// 7. The nth action will add the items n*1,n*2,n*3, ... n*numIters
+	// 8. These actions will be submitted in completely randomized order to the
+	//    workers.
+	// 9. Observe that the sum of the numbers 1...n is (n*(n+1))/2.0, hence the expected
+	//    average for the first action is (numIters*(numIters+1))/2.0*numIters = (numIters+1)/2.0,
+	//    hence for the nth action, the expected average is:
+	//        (n*(numIters)*(numIters+1))/2.0*numIters = (n*(numIters+1))/2.0
+	// Example: action003, 4 iteration time values: 3, 6, 9, 12.  Average is (3*5)/2 = 7.5
+	//
+	const numActions = 109
+	const numIters = 572
+	const numWorkers = 20
 
+	// The numbers 0...(numActions*numIters) are the number of distinct calls to AddAction().
+	// Using division and modular arithmentic we can ensure each distinct call is made exactly
+	// once.  Here we randomize the order of the calls for submission to the workers.
 	rand.Seed(time.Now().Unix())
 	perm := rand.Perm(numActions * numIters)
 
+	// Create a ne waccumulator to get aand fetch the results from.
 	acc := NewAccumulator()
 
-	// Goroutine to feed action tasks into the workers.
+	// Goroutine to feed action tasks into the workers and finally close
+	// the channel.
 	jobChan := make(chan int)
-
 	go func(wrtr chan<- int) {
 		for _, p := range perm {
 			wrtr <- p
@@ -194,6 +234,13 @@ func TestConcurrency(t *testing.T) {
 		}
 	}(resChan)
 
+	// Create the worker goroutines.  Each will receive a job number through
+	// it's input channel and infer the unique action and time from that.
+	// It will then call AddAction() for this action, and also call GetStats().
+	// Successes (nils) and errors for both calls will be sent to the error
+	// receiver channel.  Note there isn't much predictable info we can gather
+	// from GetStats() midstream of the test, but at least we can check that the
+	// result is well-formed and that there were no race condition errors in the code.
 	var wg sync.WaitGroup
 	for i := 0; i < numWorkers; i++ {
 
@@ -217,19 +264,24 @@ func TestConcurrency(t *testing.T) {
 	// channel to terminate the error processing goroutine.
 	wg.Wait()
 	close(resChan)
+
+	// Wait for the error groutine to exit.
 	ewg.Wait()
 
+	// We should have received one result for each call to add and each stats call.
 	if resCnt != 2*numActions*numIters {
 		t.Fatalf("expected %d actions, but got %d",
 			2*numActions*numIters, resCnt)
 	}
 
+	// We don't expect any errors to have occurred.
 	for _, e := range errs {
 		if e != nil {
 			t.Fatalf("got unexpcted error: %v", e)
 		}
 	}
 
+	// Get the final stats and make sure they ar eall present and correct.
 	var items []Item
 	stats := acc.GetStats()
 	if err := json.Unmarshal([]byte(stats), &items); err != nil {
@@ -246,8 +298,10 @@ func TestConcurrency(t *testing.T) {
 		if item.Action != aname {
 			t.Fatalf("expected action '%s', but got '%s", aname, item.Action)
 		}
-		expAvg := float64((actionNum)) * numIters * (numIters + 1.0) / (2.0 * numIters)
-		fmt.Println("exp avg")
+
+		// The algorithm for calcualting the expceted average was detailed at the
+		// top of the function.
+		expAvg := float64(actionNum*(numIters+1.0)) / 2.0
 		if item.Avg != float64(expAvg) {
 			t.Fatalf("%d: expected average '%f', but got '%f", i, expAvg, item.Avg)
 		}
