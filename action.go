@@ -6,14 +6,15 @@ import (
 	"sync"
 )
 
-// Input represents an unmarshalled array member of the AddAction input.
+// Input represents the unmarshalled input of AddAction.
 type Input struct {
 	Action string  `json:"action"`
 	Time   float64 `json:"time"`
 }
 
 // Item holds the data for a given action item.  It is intended to be
-// serializable directly as JSON for the statistics query.
+// serializable directly as JSON for the statistics query.  Note the
+// count field, used internally, is not part of the serialized JSON.
 type Item struct {
 	Action string  `json:"action"`
 	Avg    float64 `json:"avg"`
@@ -35,7 +36,7 @@ type Accumulator struct {
 	keys []string
 
 	// We can have multiple readers querying the data for stats, but only
-	// a an exclusive writer with no readers may update.
+	// an exclusive writer with no readers may update.
 	mu sync.RWMutex
 }
 
@@ -48,7 +49,7 @@ func NewAccumulator() *Accumulator {
 }
 
 // AddAction adds a list of actions and times, recalcuates the appropriate
-// running averages, and adds to the sroted lsit if needed.  We need
+// running averages, and adds to the sorted list if needed.  We need
 // exclusive write access for this.
 func (acc *Accumulator) AddAction(actions string) error {
 	// First make sure we have valid input before grabbing the lock.
@@ -65,7 +66,7 @@ func (acc *Accumulator) AddAction(actions string) error {
 		acc.keys = insertSorted(input.Action, acc.keys)
 		acc.items[input.Action] = &Item{Action: input.Action, Avg: input.Time, count: 1}
 	} else {
-		// Recalculatge the running average for this action item.
+		// Recalculate the running average for this action item and bump the count.
 		item.Avg = (float64(item.count)*item.Avg + input.Time) / float64(item.count+1)
 		item.count++
 	}
@@ -74,12 +75,12 @@ func (acc *Accumulator) AddAction(actions string) error {
 
 // GetStats returns all the data for all actions.
 func (acc *Accumulator) GetStats() string {
-	res := make([]*Item, len(acc.keys))
 
-	// We've stord the daata in the proper format, so we simply need to
-	// copy the pointers from the hash map, order by key, to an array to
-	// marshall for the desired string result.
+	// We've stord the data in the proper format, so we simply need to
+	// copy the pointers from the hash map, ordered by sorted keys, to an
+	// array to marshall for the desired string result.
 	acc.mu.RLock()
+	res := make([]*Item, len(acc.keys))
 	for i, k := range acc.keys {
 		res[i] = acc.items[k]
 	}
@@ -87,9 +88,8 @@ func (acc *Accumulator) GetStats() string {
 
 	b, err := json.MarshalIndent(res, "", "  ")
 	if err != nil {
-		// If the marshall fails, something is broken in the system/
-		// This should never happen unless something is catastrophically
-		// broken.
+		// If the marshall fails, something is fundamentally broken
+		// in the system.
 		panic("cannot marshall internal data: " + err.Error())
 	}
 	return string(b)
