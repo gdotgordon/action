@@ -1,4 +1,4 @@
-package action
+package accumulator
 
 import (
 	"encoding/json"
@@ -131,7 +131,7 @@ func TestBasicOperation(t *testing.T) {
 		},
 	} {
 		// Input all the data.
-		acc := NewAccumulator()
+		acc := New()
 		// Sequential adds.
 		for _, inp := range data.input {
 			err := acc.AddAction(inp)
@@ -173,7 +173,7 @@ func TestConcurrency(t *testing.T) {
 	// The test creates a number of distinct actions, each which call AddAction()
 	// and then GetStats() the identical number of times.  Each individual
 	// AddAction/GetStats pair is called concurrently in a goroutine in one
-	// of the configured number of worker gorouitines.
+	// of the configured number of worker goroutines.
 	//
 	// In summary:
 	// 1. The actions are named action00001, action00002, ....up to numActions,
@@ -204,8 +204,8 @@ func TestConcurrency(t *testing.T) {
 	rand.Seed(time.Now().Unix())
 	perm := rand.Perm(numActions * numIters)
 
-	// Create a ne waccumulator to get aand fetch the results from.
-	acc := NewAccumulator()
+	// Create a new accumulator to get aand fetch the results from.
+	acc := New()
 
 	// Goroutine to feed action tasks into the workers and finally close
 	// the channel.
@@ -218,7 +218,7 @@ func TestConcurrency(t *testing.T) {
 	}(jobChan)
 
 	// Goroutine to process the results.  We'll accumulate any errors
-	// and at the end see if we got the expcted error-free run.
+	// and at the end to see if we got the expcted error-free run.
 	resChan := make(chan error)
 	var errs []error
 	resCnt := 0
@@ -281,7 +281,7 @@ func TestConcurrency(t *testing.T) {
 		}
 	}
 
-	// Get the final stats and make sure they ar eall present and correct.
+	// Get the final stats and make sure they are all present and correct.
 	var items []Item
 	stats := acc.GetStats()
 	if err := json.Unmarshal([]byte(stats), &items); err != nil {
@@ -291,7 +291,10 @@ func TestConcurrency(t *testing.T) {
 		t.Fatalf("expected %d acitons, got %d", numActions, len(items))
 	}
 
-	fmt.Println(acc.GetStats())
+	// To see result, comment this code out.
+	//fmt.Println(acc.GetStats())
+
+	// Check the veracity of each item.
 	for i, item := range items {
 		actionNum := i + 1
 		aname := fmt.Sprintf("action%05d", actionNum)

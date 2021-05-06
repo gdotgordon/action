@@ -1,4 +1,14 @@
-package action
+// Package accumulator implements the required APIs.  The accumulator
+// is the type that gathers actions and times and returns averages
+// for all actions.
+// To use the APIs, one needs to create a new Accumulator.  In summary:
+// acc := accumulator.New()
+// err := acc.AddAction(<json as string>)
+// <json as string> = acc.GetStats()
+//
+// Note: the data is not persisted, so it is around only as long as
+// the accumulator itself.
+package accumulator
 
 import (
 	"encoding/json"
@@ -15,7 +25,7 @@ type Input struct {
 
 // Item holds the data for a given action item.  It is intended to be
 // serializable directly as JSON for the statistics query.  Note the
-// count and sum fieldd, used internally, are not part of the serialized JSON.
+// count and sum fields, used internally, are not part of the serialized JSON.
 type Item struct {
 	Action string  `json:"action"`
 	Avg    float64 `json:"avg"`
@@ -33,8 +43,8 @@ type Accumulator struct {
 	items map[string]*Item
 
 	// Sorted list of hash map keys.  It is faster to maintain a sorted
-	// list to insert into, rather than to build an entire sorted list of
-	// keys each time a new key is added.
+	// list to insert nwe keys into, rather than to build an entire sorted
+	// list of keys each time a new key is added - O(log n) vis. O(n*log n)
 	keys []string
 
 	// We can have multiple readers querying the data for stats, but only
@@ -42,8 +52,8 @@ type Accumulator struct {
 	mu sync.RWMutex
 }
 
-// NewAccumulator returns the accumulator, which implements the required API.
-func NewAccumulator() *Accumulator {
+// New returns the accumulator, which implements the required API.
+func New() *Accumulator {
 	acc := Accumulator{
 		items: make(map[string]*Item),
 	}
@@ -53,18 +63,23 @@ func NewAccumulator() *Accumulator {
 // AddAction adds a list of actions and times, recalcuates the appropriate
 // running averages, and adds to the sorted list if needed.  We need
 // exclusive write access for this.
-func (acc *Accumulator) AddAction(actions string) error {
+func (acc *Accumulator) AddAction(action string) error {
 	// First make sure we have valid input before grabbing the lock.
 	var input *Input
-	if err := json.Unmarshal([]byte(actions), &input); err != nil {
+	if err := json.Unmarshal([]byte(action), &input); err != nil {
 		return err
 	}
 	if input.Action == "" {
 		return fmt.Errorf("missing action")
 	}
+	if input.Time < 0 {
+		return fmt.Errorf("negative time")
+	}
 
 	acc.mu.Lock()
 	defer acc.mu.Unlock()
+
+	// Is this a new action or one we've seen before?
 	item, ok := acc.items[input.Action]
 	if !ok {
 		// Add a new action key to the sorted list and item map.
