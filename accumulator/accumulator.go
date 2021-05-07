@@ -97,21 +97,21 @@ func (acc *Accumulator) AddAction(action string) error {
 // GetStats returns all the data for all actions.
 func (acc *Accumulator) GetStats() string {
 
-	// We've stord the data in the proper format, so we simply need to
+	// We've stored the data in the proper format, so we simply need to
 	// copy the pointers from the hash map, ordered by sorted keys, to an
-	// array to marshall for the desired string result.
+	// array to marshal for the desired string result.
 	acc.mu.RLock()
 	res := make([]*Item, len(acc.keys))
 	for i, k := range acc.keys {
 		res[i] = acc.items[k]
 	}
-	acc.mu.RUnlock()
 
 	b, err := json.MarshalIndent(res, "", "  ")
+	acc.mu.RUnlock()
 	if err != nil {
-		// If the marshall fails, something is fundamentally broken
-		// in the system.
-		panic("cannot marshall internal data: " + err.Error())
+		// If the marshal fails, something is fundamentally broken,
+		// and the system is unusable.
+		panic("cannot marshal internal data: " + err.Error())
 	}
 	return string(b)
 }

@@ -170,7 +170,7 @@ func TestBasicOperation(t *testing.T) {
 
 // Test concurrent adds and stats retrievals.
 func TestConcurrency(t *testing.T) {
-	// The test creates a number of distinct actions, each which call AddAction()
+	// The test creates a number of distinct actions, each of which call AddAction()
 	// and then GetStats() the identical number of times.  Each individual
 	// AddAction/GetStats pair is called concurrently in a goroutine in one
 	// of the configured number of worker goroutines.
@@ -180,7 +180,7 @@ func TestConcurrency(t *testing.T) {
 	//     the configured number of actions.  The action0000x format is to preserve
 	//     numbering order when looping thorugh the results, which are alphabetized
 	//     by action name.
-	// 2. Each action has a specific number of iterations, specified by numIters.
+	// 2. Each action will do the number of iterations, specified by numIters.
 	// 3. The number of worker goroutines is numwWorkers.
 	// 4. Each action will add actions with times (action #)*1, (action #)*2, etc.
 	// 5. Given #4, action 1 will add the times 1,2,3,4,5....numIters
@@ -195,7 +195,7 @@ func TestConcurrency(t *testing.T) {
 	// Example: action003, 4 iteration time values: 3, 6, 9, 12.  Average is (3*5)/2 = 7.5
 	//
 	const numActions = 109
-	const numIters = 572
+	const numIters = 304
 	const numWorkers = 20
 
 	// The numbers 0...(numActions*numIters) are the number of distinct calls to AddAction().
